@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Aloud — a voice for people who can't speak</title>
+<meta name="description" content="A free, private, offline communication app (AAC). Tap or type and your phone speaks for you. For anyone who is non-verbal — autism, ALS, stroke, a laryngectomy, or recovering from surgery. No account, nothing leaves your device.">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --line:#334155; --ink:#f1f5f9; --mut:#94a3b8;
+    --accent:#38bdf8; --yes:#22c55e; --no:#ef4444; --urgent:#f59e0b; --tap:#0ea5e9;
+    --btn:#273449;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{background:var(--bg);color:var(--ink);font:17px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    display:flex;flex-direction:column;height:100dvh;overflow:hidden}
+  header{padding:10px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--line);flex:none}
+  header .logo{font-weight:800;font-size:18px;letter-spacing:-.01em}
+  header .logo span{color:var(--accent)}
+  header .sp{flex:1}
+  .iconbtn{background:var(--btn);border:1px solid var(--line);color:var(--ink);border-radius:10px;
+    padding:9px 12px;font-size:15px;font-weight:600;cursor:pointer}
+
+  /* the sentence bar */
+  .bar{flex:none;padding:12px 14px;border-bottom:1px solid var(--line);background:#0b1424}
+  .bar textarea{width:100%;background:#0b1424;border:2px solid var(--line);border-radius:14px;color:var(--ink);
+    font:600 24px/1.35 inherit;padding:14px;resize:none;min-height:64px;max-height:22vh}
+  .barrow{display:flex;gap:10px;margin-top:10px}
+  .speak{flex:1;background:linear-gradient(90deg,#0ea5e9,#38bdf8);color:#04121c;border:none;border-radius:14px;
+    font-weight:800;font-size:22px;padding:16px;cursor:pointer}
+  .clear{background:var(--btn);border:1px solid var(--line);color:var(--ink);border-radius:14px;font-size:18px;padding:0 18px;font-weight:700;cursor:pointer}
+
+  /* always-on critical row */
+  .crit{flex:none;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .crit button{border:none;border-radius:14px;padding:16px 6px;font-weight:800;font-size:19px;color:#04121c;cursor:pointer}
+  .crit .b-yes{background:var(--yes)} .crit .b-no{background:var(--no);color:#fff} .crit .b-help{background:var(--urgent)}
+
+  /* tabs */
+  .tabs{flex:none;display:flex;gap:8px;overflow-x:auto;padding:10px 14px;border-bottom:1px solid var(--line)}
+  .tab{white-space:nowrap;background:var(--btn);border:1px solid var(--line);color:var(--mut);border-radius:999px;
+    padding:9px 16px;font-size:16px;font-weight:700;cursor:pointer}
+  .tab.on{background:#0c4a6e;border-color:var(--accent);color:#e0f2fe}
+
+  /* phrase grid */
+  .grid{flex:1;overflow-y:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));
+    gap:10px;padding:14px;align-content:start}
+  .pbtn{background:var(--btn);border:1px solid var(--line);border-radius:16px;color:var(--ink);
+    min-height:96px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+    font-size:18px;font-weight:700;cursor:pointer;padding:10px;text-align:center;line-height:1.2}
+  .pbtn .emo{font-size:34px}
+  .pbtn:active{background:#0c4a6e;border-color:var(--accent)}
+  .pbtn.add{border-style:dashed;color:var(--mut);font-weight:600}
+
+  /* settings sheet */
+  .sheet{position:fixed;inset:0;background:rgba(2,6,23,.7);display:none;align-items:flex-end;z-index:20}
+  .sheet .card{background:var(--panel);width:100%;max-width:560px;margin:0 auto;border-radius:18px 18px 0 0;padding:18px 18px 28px;border-top:1px solid var(--line)}
+  .sheet h2{margin:2px 0 14px;font-size:18px} label{display:block;color:var(--mut);font-size:14px;margin:14px 0 6px}
+  select,input[type=range]{width:100%} select{background:#0b1424;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px}
+  .row2{display:flex;gap:10px;margin-top:18px}
+  .row2 button{flex:1;padding:14px;border-radius:12px;font-weight:700;font-size:16px;cursor:pointer;border:1px solid var(--line)}
+  .prim{background:var(--accent);color:#04121c;border:none} .sec{background:var(--btn);color:var(--ink)}
+  .hint{color:var(--mut);font-size:13px;margin-top:14px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Al<span>oud</span></div>
+  <div class="sp"></div>
+  <button class="iconbtn" id="editBtn">✎ Edit</button>
+  <button class="iconbtn" id="setBtn">⚙</button>
+</header>
+
+<div class="bar">
+  <textarea id="say" rows="1" placeholder="Type here, or tap a phrase below…" autocomplete="off"></textarea>
+  <div class="barrow">
+    <button class="speak" id="speakBtn">🔊 Speak</button>
+    <button class="clear" id="clearBtn">⌫</button>
+  </div>
+</div>
+
+<div class="crit">
+  <button class="b-yes" data-say="Yes.">✓ Yes</button>
+  <button class="b-no" data-say="No.">✗ No</button>
+  <button class="b-help" data-say="I need help, please.">🆘 Help</button>
+</div>
+
+<div class="tabs" id="tabs"></div>
+<div class="grid" id="grid"></div>
+
+<div class="sheet" id="sheet"><div class="card">
+  <h2>Settings</h2>
+  <label>Voice</label>
+  <select id="voiceSel"></select>
+  <label>Speaking speed: <span id="rateVal">Normal</span></label>
+  <input type="range" id="rate" min="0.6" max="1.3" step="0.05" value="1">
+  <label>Text size</label>
+  <input type="range" id="tsize" min="14" max="26" step="1" value="17">
+  <div class="row2"><button class="sec" id="closeSet">Done</button></div>
+  <div class="hint">100% private — nothing you say leaves this device. Works offline once installed.</div>
+</div></div>
+
+<script>
+// ---------- default vocabulary (core needs first) ----------
+const VOCAB = {
+  "Needs 🆘": [
+    ["🆘","I need help, please."],["🤕","I am in pain."],["🚻","I need the bathroom."],
+    ["💊","I need my medicine."],["🍽️","I am hungry."],["🥤","I am thirsty."],
+    ["🥶","I am cold."],["🥵","I am hot."],["😴","I am tired."],
+    ["📞","Please call someone."],["🩺","I need a doctor."],["🛑","Please stop."],
+    ["✋","Please wait."],["👂","I can't hear you."],["🔁","Please say that again."]
+  ],
+  "Feel 💛": [
+    ["🙂","I am okay."],["😊","I am happy."],["😢","I am sad."],["😟","I am worried."],
+    ["😠","I am upset."],["😣","I am uncomfortable."],["😌","I feel better."],
+    ["❤️","I love you."],["🙏","Thank you."],["🤗","I need a hug."],["😕","I don't understand."],["👍","That is good."]
+  ],
+  "Chat 💬": [
+    ["👋","Hello."],["👋","Goodbye."],["🙏","Please."],["🙂","Nice to meet you."],
+    ["❓","How are you?"],["⏳","One moment, please."],["✅","I agree."],["❌","I disagree."],
+    ["🤔","I am thinking."],["👌","That's fine."],["🙋","Excuse me."],["😅","Sorry."]
+  ],
+  "People 👥": [
+    ["👩","My wife."],["👨","My husband."],["👧","My daughter."],["👦","My son."],
+    ["👩‍⚕️","The nurse."],["🧑‍⚕️","The doctor."],["👪","My family."],["👤","My friend."],["🧑‍🦰","The caregiver."]
+  ],
+  "Places 📍": [
+    ["🏠","I want to go home."],["🛏️","I want to lie down."],["🪑","I want to sit up."],
+    ["🚗","Take me to the car."],["🏥","Take me to the hospital."],["🚪","Open the door, please."],
+    ["🪟","Open the window, please."],["💡","Turn on the light."],["🌙","Turn off the light."]
+  ]
+};
+const CRIT_EXTRA = [];
+
+// ---------- state ----------
+let voices = [], settings = JSON.parse(localStorage.getItem('aloud_settings')||'{}');
+let custom = JSON.parse(localStorage.getItem('aloud_custom')||'[]');
+let editMode = false, activeTab = Object.keys(VOCAB)[0];
+
+// ---------- speech ----------
+function loadVoices(){ voices = speechSynthesis.getVoices(); populateVoices(); }
+function speak(text){
+  if(!text || !text.trim()) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  const v = voices.find(v=>v.voiceURI===settings.voice);
+  if(v) u.voice = v;
+  u.rate = settings.rate || 1; u.pitch = 1;
+  speechSynthesis.speak(u);
+  if(navigator.vibrate) navigator.vibrate(15);
+}
+
+// ---------- render ----------
+function tabsList(){ return [...Object.keys(VOCAB), "Mine ⭐"]; }
+function renderTabs(){
+  const t = document.getElementById('tabs'); t.innerHTML='';
+  tabsList().forEach(name=>{
+    const b=document.createElement('button'); b.className='tab'+(name===activeTab?' on':''); b.textContent=name;
+    b.onclick=()=>{ activeTab=name; renderTabs(); renderGrid(); }; t.appendChild(b);
+  });
+}
+function phrasesFor(tab){ return tab==="Mine ⭐" ? custom : VOCAB[tab]; }
+function renderGrid(){
+  const g=document.getElementById('grid'); g.innerHTML='';
+  const list = phrasesFor(activeTab) || [];
+  list.forEach((p,idx)=>{
+    const [emo,text]=p;
+    const b=document.createElement('button'); b.className='pbtn';
+    b.innerHTML=`<span class="emo">${emo}</span><span>${text.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
+    b.onclick=()=>{ if(editMode){ if(activeTab==="Mine ⭐"){ if(confirm('Remove this phrase?')){ custom.splice(idx,1); saveCustom(); renderGrid(); } } return; } speak(text); appendSaid(text); };
+    g.appendChild(b);
+  });
+  if(activeTab==="Mine ⭐" || editMode){
+    const add=document.createElement('button'); add.className='pbtn add'; add.innerHTML='<span class="emo">➕</span><span>Add phrase</span>';
+    add.onclick=addPhrase; g.appendChild(add);
+  }
+}
+function appendSaid(text){ /* also drop it into the bar so it can be shown/extended */
+  const s=document.getElementById('say'); s.value = text; autoSize(s);
+}
+
+// ---------- custom phrases ----------
+function saveCustom(){ localStorage.setItem('aloud_custom', JSON.stringify(custom)); }
+function addPhrase(){
+  const text = prompt('New phrase to say:'); if(!text||!text.trim()) return;
+  const emo = prompt('Pick one emoji for the button (optional):','⭐') || '⭐';
+  custom.push([emo.trim()||'⭐', text.trim()]); saveCustom();
+  activeTab="Mine ⭐"; renderTabs(); renderGrid();
+}
+
+// ---------- settings ----------
+function saveSettings(){ localStorage.setItem('aloud_settings', JSON.stringify(settings)); }
+function populateVoices(){
+  const sel=document.getElementById('voiceSel'); if(!sel) return; sel.innerHTML='';
+  const en = voices.filter(v=>/^en/i.test(v.lang)); const list = en.length?en:voices;
+  list.forEach(v=>{ const o=document.createElement('option'); o.value=v.voiceURI; o.textContent=`${v.name} (${v.lang})`; sel.appendChild(o); });
+  if(settings.voice) sel.value=settings.voice; else if(list[0]){ settings.voice=list[0].voiceURI; }
+}
+function autoSize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight, window.innerHeight*0.22)+'px'; }
+
+// ---------- wire up ----------
+document.getElementById('speakBtn').onclick=()=>{ const s=document.getElementById('say'); speak(s.value); };
+document.getElementById('clearBtn').onclick=()=>{ const s=document.getElementById('say'); s.value=''; autoSize(s); s.focus(); };
+document.getElementById('say').addEventListener('input',e=>autoSize(e.target));
+document.querySelectorAll('.crit button').forEach(b=>b.onclick=()=>{ speak(b.dataset.say); appendSaid(b.dataset.say); });
+document.getElementById('editBtn').onclick=(e)=>{ editMode=!editMode; e.target.textContent = editMode?'✓ Done':'✎ Edit'; e.target.style.background = editMode?'#0c4a6e':''; renderGrid(); };
+document.getElementById('setBtn').onclick=()=>{ document.getElementById('sheet').style.display='flex'; };
+document.getElementById('closeSet').onclick=()=>{ document.getElementById('sheet').style.display='none'; };
+document.getElementById('voiceSel').onchange=e=>{ settings.voice=e.target.value; saveSettings(); speak('This is my voice.'); };
+const rate=document.getElementById('rate'); rate.value=settings.rate||1;
+rate.oninput=e=>{ settings.rate=+e.target.value; document.getElementById('rateVal').textContent = settings.rate<0.85?'Slow':settings.rate>1.1?'Fast':'Normal'; saveSettings(); };
+const tsize=document.getElementById('tsize'); tsize.value=settings.tsize||17;
+function applyTextSize(){ document.querySelectorAll('.pbtn span:last-child').forEach(s=>s.style.fontSize=(settings.tsize||17)+'px'); }
+tsize.oninput=e=>{ settings.tsize=+e.target.value; saveSettings(); applyTextSize(); };
+
+speechSynthesis.onvoiceschanged = loadVoices;
+loadVoices(); renderTabs(); renderGrid();
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
