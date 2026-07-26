@@ -1,44 +1,21 @@
-# Aloud care-circle — 3-minute cloud setup (free)
+# Aloud care circle — how the live cloud works (free, no setup)
 
-This turns on the **live** care circle: family watch the timeline update in real time
-on their own phones and get an instant alert when something urgent is said.
+The live care circle uses **ntfy.sh**, a free open pub/sub service. **No account, no keys,
+no configuration** — it works the moment the app is deployed.
 
-## 1. Create a free Supabase project
-- Go to https://supabase.com → sign up → **New project** (free tier is enough).
-- Wait ~2 min for it to provision.
+- The person turns on **☁️ Sync to care circle** (in 👪 Care) and gets a **circle code** + a
+  **QR** to share.
+- Family **scan the QR** (or open the link) → they see the timeline **update live** and get
+  **instant alerts** (sound / vibration / notification) when something urgent is said.
 
-## 2. Create the table (copy-paste, run once)
-Open **SQL Editor** → New query → paste and Run:
-
-```sql
-create table if not exists messages (
-  id uuid primary key default gen_random_uuid(),
-  circle text not null,
-  name text,
-  text text not null,
-  urgent boolean default false,
-  created_at timestamptz default now()
-);
-create index if not exists messages_circle_idx on messages (circle, created_at);
-
--- turn on realtime
-alter publication supabase_realtime add table messages;
-
--- prototype access rules (see security note below)
-alter table messages enable row level security;
-create policy "circle insert" on messages for insert to anon with check (true);
-create policy "circle read"   on messages for select to anon using (true);
-```
-
-## 3. Paste your keys
-- Supabase → **Settings → API**. Copy **Project URL** and the **anon public** key.
-- Put them into `config.js` (SUPABASE_URL and SUPABASE_ANON_KEY), commit, and redeploy.
-
-Done — the "Sync to care circle" switch in the app will now work.
-
-## Security — read this honestly
-This is a **prototype** access model: the care-circle *code* is the only secret, and the
-anon key can read the table. That's fine for a family trial, **not** for real deployment.
-For production you must add **Supabase Auth** and per-circle Row-Level-Security policies so
-only authenticated members of a circle can read its messages. This is health-adjacent data —
-treat it accordingly before real users rely on it.
+## Honest limitations (please read before relying on it)
+- **Privacy is prototype-grade.** The circle *code* is the only secret; ntfy topics are public,
+  so anyone who learns the code could read/post. Use a long code, and for real deployment
+  **self-host ntfy or add authentication** — this is health-adjacent data.
+- **Cloud history is recent only** (~12 hours on the public server). The person's *own* device
+  keeps the full history (👪 Care), and "Send summary to family" shares the whole day. For
+  permanent shared records, move to an authenticated database later.
+- **Background push on iPhone is limited.** Live alerts work while the family's monitor is open.
+  A push when their phone is locked/app-closed needs Web Push + an installed PWA (iOS 16.4+) —
+  a future add-on.
+- **Doctors/nurses in a hospital EHR** remains a separate, regulated (HIPAA) project.

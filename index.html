@@ -157,9 +157,7 @@
   <div id="monUrgent" style="display:none;position:fixed;left:0;right:0;bottom:0;background:linear-gradient(90deg,#b91c1c,#f59e0b);color:#fff;padding:16px;font-weight:800;font-size:18px;text-align:center"></div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
-<script src="config.js"></script>
 <script>
 // ---------- default vocabulary (core needs first) ----------
 const VOCAB = {
@@ -322,21 +320,21 @@ const tsize=document.getElementById('tsize'); tsize.value=settings.tsize||17;
 function applyTextSize(){ document.querySelectorAll('.pbtn span:last-child').forEach(s=>s.style.fontSize=(settings.tsize||17)+'px'); }
 tsize.oninput=e=>{ settings.tsize=+e.target.value; saveSettings(); applyTextSize(); };
 
-// ---------- cloud care circle (Supabase) ----------
-const CFG = window.ALOUD_CONFIG || {};
-const cloudReady = !!(CFG.SUPABASE_URL && CFG.SUPABASE_ANON_KEY && window.supabase);
-const sb = cloudReady ? window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY) : null;
+// ---------- cloud care circle (ntfy.sh — free, no account, works instantly) ----------
+const NTFY='https://ntfy.sh/';
+const cloudReady=true;                       // ntfy needs no setup or keys
 let cloudOn = localStorage.getItem('aloud_cloud_on')==='1';
 function circleCode(){ let c=localStorage.getItem('aloud_circle');
-  if(!c){ c=(Math.random().toString(36).slice(2,6)+Math.random().toString(36).slice(2,6)).toUpperCase(); localStorage.setItem('aloud_circle',c);} return c; }
-async function cloudPush(text, urgent){ if(!sb||!cloudOn) return;
-  try{ await sb.from('messages').insert({circle:circleCode(), name:settings.pname||'Loved one', text, urgent:!!urgent}); }catch(e){} }
+  if(!c){ c=(Math.random().toString(36).slice(2,7)+Math.random().toString(36).slice(2,7)).toUpperCase(); localStorage.setItem('aloud_circle',c);} return c; }
+function topicFor(code){ return 'aloudcare-'+code.toLowerCase(); }   // ntfy topic; the code is the shared secret
+async function cloudPush(text, urgent){ if(!cloudOn) return;
+  try{ await fetch(NTFY+topicFor(circleCode()), {method:'POST',
+    body: JSON.stringify({name:settings.pname||'Loved one', text, urgent:!!urgent, t:Date.now()}),
+    headers: urgent?{'Priority':'urgent','Tags':'rotating_light'}:{}}); }catch(e){} }
 function refreshCloudUI(){
   const st=document.getElementById('cloudStatus'), wrap=document.getElementById('circleWrap'), tog=document.getElementById('cloudToggle');
-  tog.checked = cloudOn && cloudReady;
-  if(!cloudReady){ st.innerHTML='Cloud not set up yet — see <b>SETUP.md</b> (add Supabase keys to config.js).'; wrap.style.display='none'; tog.disabled=true; return; }
-  tog.disabled=false;
-  if(cloudOn){ st.textContent='On — family with the code (or QR) can watch live and get alerts.'; wrap.style.display='block'; document.getElementById('circleCode').textContent=circleCode(); }
+  tog.checked=cloudOn; tog.disabled=false;
+  if(cloudOn){ st.textContent='On — family with the code (or QR) can watch live & get alerts. Free, no signup.'; wrap.style.display='block'; document.getElementById('circleCode').textContent=circleCode(); }
   else{ st.textContent='Off — messages stay on this device only.'; wrap.style.display='none'; }
 }
 document.getElementById('cloudToggle').onchange=(e)=>{ cloudOn=e.target.checked; localStorage.setItem('aloud_cloud_on', cloudOn?'1':'0'); refreshCloudUI(); };
@@ -354,15 +352,24 @@ function startMonitor(code){
   document.getElementById('monitor').style.display='flex';
   document.getElementById('monTitle').textContent='Care circle · '+code;
   const list=document.getElementById('monList'), stat=document.getElementById('monStat'), dot=document.getElementById('monDot');
-  if(!cloudReady){ stat.textContent='This care circle needs cloud setup (config.js).'; return; }
-  const add=(m,initial)=>{ const d=document.createElement('div');
+  const topic=topicFor(code), seen=new Set();
+  const add=(m,ts)=>{ if(!m||!m.text) return; const key=ts+'|'+m.text; if(seen.has(key))return; seen.add(key);
+    const d=document.createElement('div');
     d.style.cssText='display:flex;gap:10px;padding:12px;border-bottom:1px solid var(--line);'+(m.urgent?'background:#3b0d0d;border-radius:10px;':'');
-    const t=new Date(m.created_at||Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    const t=new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
     d.innerHTML=`<span style="color:var(--mut);font-size:13px;min-width:60px">${t}</span><span style="flex:1;font-size:18px${m.urgent?';color:#fca5a5;font-weight:800':''}">${m.urgent?'🆘 ':''}${(m.text||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
-    list.insertBefore(d, list.firstChild); if(m.urgent && !initial) fireUrgent(m); };
-  sb.from('messages').select('*').eq('circle',code).order('created_at',{ascending:false}).limit(100)
-    .then(({data,error})=>{ if(error){ stat.textContent='Connection error.'; return; } stat.textContent='● Live · watching'; dot.style.background='#22c55e'; (data||[]).reverse().forEach(m=>add(m,true)); });
-  sb.channel('mon-'+code).on('postgres_changes',{event:'INSERT',schema:'public',table:'messages',filter:'circle=eq.'+code}, p=>add(p.new,false)).subscribe();
+    list.insertBefore(d, list.firstChild);
+    if(m.urgent && (Date.now()-ts) < 15000) fireUrgent(m);   // only alert on fresh urgent, not replayed history
+  };
+  function connect(){
+    let ws; try{ ws=new WebSocket('wss://ntfy.sh/'+topic+'/ws?since=12h'); }catch(e){ stat.textContent='Could not connect.'; return; }
+    ws.onopen=()=>{ stat.textContent='● Live · watching'; dot.style.background='#22c55e'; };
+    ws.onmessage=(e)=>{ try{ const o=JSON.parse(e.data); if(o.event!=='message') return; const m=JSON.parse(o.message);
+      add(m, o.time?o.time*1000:Date.now()); }catch(err){} };
+    ws.onerror=()=>{ dot.style.background='#f59e0b'; stat.textContent='Reconnecting…'; };
+    ws.onclose=()=>{ dot.style.background='#f59e0b'; stat.textContent='Reconnecting…'; setTimeout(connect, 3000); };
+  }
+  connect();
 }
 document.getElementById('monAlertsBtn').onclick=async()=>{
   try{ monAudioCtx=new (window.AudioContext||window.webkitAudioContext)(); await monAudioCtx.resume(); }catch(e){}
