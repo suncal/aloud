@@ -69,9 +69,15 @@
 <header>
   <div class="logo">Al<span>oud</span></div>
   <div class="sp"></div>
+  <button class="iconbtn" id="careBtn">👪 Care</button>
   <button class="iconbtn" id="editBtn">✎ Edit</button>
   <button class="iconbtn" id="setBtn">⚙</button>
 </header>
+<div id="alertBanner" style="display:none;position:fixed;left:0;right:0;top:0;z-index:30;background:linear-gradient(90deg,#b91c1c,#f59e0b);color:#fff;padding:12px 14px;display:none;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.4)">
+  <span id="alertText" style="flex:1;font-weight:700"></span>
+  <button id="alertSend" style="background:#fff;color:#b91c1c;border:none;border-radius:10px;padding:10px 14px;font-weight:800">Alert family</button>
+  <button id="alertDismiss" style="background:transparent;color:#fff;border:1px solid #fff8;border-radius:10px;padding:10px 12px">✕</button>
+</div>
 
 <div class="bar">
   <textarea id="say" rows="1" placeholder="Type here, or tap a phrase below…" autocomplete="off"></textarea>
@@ -98,8 +104,26 @@
   <input type="range" id="rate" min="0.6" max="1.3" step="0.05" value="1">
   <label>Text size</label>
   <input type="range" id="tsize" min="14" max="26" step="1" value="17">
+  <label>My name (shown in alerts to family)</label>
+  <input id="pname" type="text" placeholder="e.g., Mom" style="width:100%;background:#0b1424;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px">
+  <label>Family / caregiver name</label>
+  <input id="fname" type="text" placeholder="e.g., Sarah" style="width:100%;background:#0b1424;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px">
+  <label>Family / caregiver phone (for alerts)</label>
+  <input id="fphone" type="tel" placeholder="e.g., +1 555 123 4567" style="width:100%;background:#0b1424;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px">
   <div class="row2"><button class="sec" id="closeSet">Done</button></div>
-  <div class="hint">100% private — nothing you say leaves this device. Works offline once installed.</div>
+  <div class="hint">Private — nothing is uploaded. Alerts &amp; summaries are sent only when you tap, through your own phone's messaging.</div>
+</div></div>
+
+<div class="sheet" id="careSheet"><div class="card" style="max-height:85vh;overflow-y:auto">
+  <h2>👪 Care log — what was said today</h2>
+  <div id="careSummary" style="background:#0b1424;border:1px solid var(--line);border-radius:12px;padding:12px;font-size:15px;color:var(--mut)"></div>
+  <div id="careList" style="margin-top:12px"></div>
+  <div class="row2">
+    <button class="prim" id="shareLog">📤 Send summary to family</button>
+    <button class="sec" id="clearLog">Clear</button>
+  </div>
+  <div class="row2" style="margin-top:8px"><button class="sec" id="closeCare">Done</button></div>
+  <div class="hint">A live feed on family's own phones + automatic alerts needs the cloud add-on (next step). This log lives on this device.</div>
 </div></div>
 
 <script>
@@ -152,6 +176,53 @@ function speak(text){
   if(navigator.vibrate) navigator.vibrate(15);
 }
 
+// ---------- care log + family alerts (on-device, no server) ----------
+const URGENT = new Set(["I need help, please.","I am in pain.","I need a doctor.","Please call someone."]);
+function isUrgent(t){ return URGENT.has((t||'').trim()); }
+let log = JSON.parse(localStorage.getItem('aloud_log')||'[]');
+let lastUrgent = '';
+function saveLog(){ log = log.slice(-500); localStorage.setItem('aloud_log', JSON.stringify(log)); }
+function logMsg(text, urgent){ log.push({t:Date.now(), text, urgent:!!urgent}); saveLog(); }
+function timeStr(ts){ return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+function communicate(text, urgent){ if(!text||!text.trim()) return; speak(text); appendSaid(text); logMsg(text, urgent);
+  if(urgent){ lastUrgent=text.trim(); showAlert(text.trim()); } }
+function showAlert(text){ const b=document.getElementById('alertBanner');
+  document.getElementById('alertText').textContent='⚠ '+(settings.pname||'Your loved one')+' said: “'+text+'”';
+  b.style.display='flex'; }
+function sendToFamily(msg){
+  const phone=(settings.fphone||'').replace(/[^\d+]/g,'');
+  if(phone){ const sep=/(iphone|ipad|mac os)/i.test(navigator.userAgent)?'&':'?'; location.href='sms:'+phone+sep+'body='+encodeURIComponent(msg); return; }
+  if(navigator.share){ navigator.share({text:msg}).catch(()=>{}); return; }
+  alert('Add a family phone number in Settings (⚙) to send alerts.');
+}
+document.getElementById('alertDismiss').onclick=()=>{ document.getElementById('alertBanner').style.display='none'; };
+document.getElementById('alertSend').onclick=()=>{
+  sendToFamily('🆘 '+(settings.pname||'Your loved one')+' needs help: “'+lastUrgent+'” at '+timeStr(Date.now())+' — via Aloud');
+  document.getElementById('alertBanner').style.display='none'; };
+
+// ---------- care sheet ----------
+function todayLog(){ const s=new Date(); s.setHours(0,0,0,0); return log.filter(e=>e.t>=s.getTime()); }
+function renderCare(){
+  const tl=todayLog(), urg=tl.filter(e=>e.urgent);
+  document.getElementById('careSummary').innerHTML = tl.length
+    ? `<b style="color:var(--ink)">${tl.length}</b> messages today · <b style="color:${urg.length?'#f87171':'var(--ink)'}">${urg.length}</b> urgent`
+      + (urg.length?` · last urgent: “${urg[urg.length-1].text}” at ${timeStr(urg[urg.length-1].t)}`:'')
+    : 'No messages yet today.';
+  const list=document.getElementById('careList'); list.innerHTML='';
+  [...tl].reverse().forEach(e=>{ const d=document.createElement('div');
+    d.style.cssText='display:flex;gap:10px;padding:10px;border-bottom:1px solid var(--line);'+(e.urgent?'background:#3b0d0d;border-radius:8px;':'');
+    d.innerHTML=`<span style="color:var(--mut);font-size:13px;min-width:60px">${timeStr(e.t)}</span><span style="flex:1${e.urgent?';color:#fca5a5;font-weight:700':''}">${e.urgent?'🆘 ':''}${e.text.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
+    list.appendChild(d); });
+}
+document.getElementById('careBtn').onclick=()=>{ renderCare(); document.getElementById('careSheet').style.display='flex'; };
+document.getElementById('closeCare').onclick=()=>{ document.getElementById('careSheet').style.display='none'; };
+document.getElementById('shareLog').onclick=()=>{ const tl=todayLog(); if(!tl.length){ alert('Nothing to send yet.'); return; }
+  const urg=tl.filter(e=>e.urgent).length;
+  const msg=`Aloud — ${settings.pname||'your loved one'}'s day (${new Date().toLocaleDateString()}):\n${tl.length} messages, ${urg} urgent.\n\n`
+    + tl.map(e=>`${timeStr(e.t)} ${e.urgent?'🆘 ':''}${e.text}`).join('\n');
+  sendToFamily(msg); };
+document.getElementById('clearLog').onclick=()=>{ if(confirm('Clear the care log on this device?')){ log=[]; saveLog(); renderCare(); } };
+
 // ---------- render ----------
 function tabsList(){ return [...Object.keys(VOCAB), "Mine ⭐"]; }
 function renderTabs(){
@@ -169,7 +240,7 @@ function renderGrid(){
     const [emo,text]=p;
     const b=document.createElement('button'); b.className='pbtn';
     b.innerHTML=`<span class="emo">${emo}</span><span>${text.replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</span>`;
-    b.onclick=()=>{ if(editMode){ if(activeTab==="Mine ⭐"){ if(confirm('Remove this phrase?')){ custom.splice(idx,1); saveCustom(); renderGrid(); } } return; } speak(text); appendSaid(text); };
+    b.onclick=()=>{ if(editMode){ if(activeTab==="Mine ⭐"){ if(confirm('Remove this phrase?')){ custom.splice(idx,1); saveCustom(); renderGrid(); } } return; } communicate(text, isUrgent(text)); };
     g.appendChild(b);
   });
   if(activeTab==="Mine ⭐" || editMode){
@@ -201,10 +272,11 @@ function populateVoices(){
 function autoSize(el){ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight, window.innerHeight*0.22)+'px'; }
 
 // ---------- wire up ----------
-document.getElementById('speakBtn').onclick=()=>{ const s=document.getElementById('say'); speak(s.value); };
+document.getElementById('speakBtn').onclick=()=>{ const s=document.getElementById('say'); communicate(s.value, isUrgent(s.value)); };
 document.getElementById('clearBtn').onclick=()=>{ const s=document.getElementById('say'); s.value=''; autoSize(s); s.focus(); };
 document.getElementById('say').addEventListener('input',e=>autoSize(e.target));
-document.querySelectorAll('.crit button').forEach(b=>b.onclick=()=>{ speak(b.dataset.say); appendSaid(b.dataset.say); });
+document.querySelectorAll('.crit button').forEach(b=>b.onclick=()=>{ communicate(b.dataset.say, b.classList.contains('b-help')); });
+['pname','fname','fphone'].forEach(id=>{ const el=document.getElementById(id); if(!el) return; el.value=settings[id]||''; el.oninput=()=>{ settings[id]=el.value; saveSettings(); }; });
 document.getElementById('editBtn').onclick=(e)=>{ editMode=!editMode; e.target.textContent = editMode?'✓ Done':'✎ Edit'; e.target.style.background = editMode?'#0c4a6e':''; renderGrid(); };
 document.getElementById('setBtn').onclick=()=>{ document.getElementById('sheet').style.display='flex'; };
 document.getElementById('closeSet').onclick=()=>{ document.getElementById('sheet').style.display='none'; };
