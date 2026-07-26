@@ -63,6 +63,15 @@
   .row2 button{flex:1;padding:14px;border-radius:12px;font-weight:700;font-size:16px;cursor:pointer;border:1px solid var(--line)}
   .prim{background:var(--accent);color:#04121c;border:none} .sec{background:var(--btn);color:var(--ink)}
   .hint{color:var(--mut);font-size:13px;margin-top:14px;text-align:center}
+  /* accessibility: switch scanning + big mode */
+  .scanhl{ outline:5px solid var(--accent)!important; outline-offset:-2px;
+    box-shadow:0 0 0 4px rgba(56,189,248,.35),0 0 26px rgba(56,189,248,.7)!important; }
+  #scanBar{ position:fixed;left:0;right:0;bottom:0;z-index:40;display:none;
+    background:linear-gradient(0deg,#0284c7,#38bdf8);color:#04121c;font-weight:800;font-size:22px;
+    text-align:center;padding:22px 16px;box-shadow:0 -6px 24px rgba(0,0,0,.5);cursor:pointer;user-select:none }
+  body.scanning .grid{ padding-bottom:100px }
+  body.big .grid{ grid-template-columns:repeat(auto-fill,minmax(220px,1fr)) }
+  body.big .pbtn{ min-height:132px;font-size:22px } body.big .pbtn .emo{ font-size:48px }
 </style>
 </head>
 <body>
@@ -110,9 +119,23 @@
   <input id="fname" type="text" placeholder="e.g., Sarah" style="width:100%;background:#0b1424;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px">
   <label>Family / caregiver phone (for alerts)</label>
   <input id="fphone" type="tel" placeholder="e.g., +1 555 123 4567" style="width:100%;background:#0b1424;color:var(--ink);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:16px">
+  <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px">
+    <label style="display:flex;align-items:center;justify-content:space-between;color:var(--ink);font-size:16px;margin:0">
+      <span>🔘 Switch scanning (single-tap access)</span>
+      <input type="checkbox" id="scanToggle" style="width:auto;transform:scale(1.4)">
+    </label>
+    <div style="color:var(--mut);font-size:13px;margin-top:6px">Buttons highlight one at a time. Press a switch, the Spacebar, or the big blue bar to pick the highlighted one — for people who can't tap precisely.</div>
+    <label>Scan speed: <span id="scanRateVal">Normal</span></label>
+    <input type="range" id="scanSpeed" min="700" max="3000" step="100" value="1500">
+    <label style="display:flex;align-items:center;justify-content:space-between;color:var(--ink);font-size:16px;margin-top:14px">
+      <span>🔠 Big buttons</span>
+      <input type="checkbox" id="bigToggle" style="width:auto;transform:scale(1.4)">
+    </label>
+  </div>
   <div class="row2"><button class="sec" id="closeSet">Done</button></div>
   <div class="hint">Private — nothing is uploaded. Alerts &amp; summaries are sent only when you tap, through your own phone's messaging.</div>
 </div></div>
+<div id="scanBar">👆 Tap here (or your switch / Spacebar) to select</div>
 
 <div class="sheet" id="careSheet"><div class="card" style="max-height:85vh;overflow-y:auto">
   <h2>👪 Care log — what was said today</h2>
@@ -151,7 +174,15 @@
   <div style="padding:14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px">
     <span id="monDot" style="width:10px;height:10px;border-radius:50%;background:#64748b"></span>
     <div style="flex:1"><div style="font-weight:800" id="monTitle">Care circle</div><div id="monStat" style="color:var(--mut);font-size:13px">connecting…</div></div>
-    <button class="iconbtn" id="monAlertsBtn">🔔 Enable alerts</button>
+    <button class="iconbtn" id="monAlertsBtn">🔔 Alerts</button>
+    <button class="iconbtn" id="monBgBtn">📥 When closed</button>
+  </div>
+  <div id="monBgPanel" style="display:none;background:#0b1424;border-bottom:1px solid var(--line);padding:14px;text-align:center">
+    <div style="font-weight:700;margin-bottom:4px">Get alerts even when this app is closed</div>
+    <div style="color:var(--mut);font-size:13px">Install the free <b>ntfy</b> app, then subscribe to this topic to get real phone notifications on the lock screen:</div>
+    <div id="monTopic" style="font:800 15px ui-monospace,monospace;color:var(--accent);margin:8px 0;word-break:break-all"></div>
+    <div style="background:#fff;padding:10px;border-radius:12px;display:inline-block"><img id="monBgQr" style="width:150px;height:150px;image-rendering:pixelated;display:block"></div>
+    <div style="margin-top:8px"><a id="monTopicLink" href="#" target="_blank" style="color:var(--accent2);font-size:13px">Open in ntfy →</a></div>
   </div>
   <div id="monList" style="flex:1;overflow-y:auto;padding:12px"></div>
   <div id="monUrgent" style="display:none;position:fixed;left:0;right:0;bottom:0;background:linear-gradient(90deg,#b91c1c,#f59e0b);color:#fff;padding:16px;font-weight:800;font-size:18px;text-align:center"></div>
@@ -353,6 +384,13 @@ function startMonitor(code){
   document.getElementById('monTitle').textContent='Care circle · '+code;
   const list=document.getElementById('monList'), stat=document.getElementById('monStat'), dot=document.getElementById('monDot');
   const topic=topicFor(code), seen=new Set();
+  document.getElementById('monBgBtn').onclick=()=>{
+    const p=document.getElementById('monBgPanel'), showing=p.style.display==='block';
+    p.style.display=showing?'none':'block';
+    if(!showing){ document.getElementById('monTopic').textContent=topic;
+      const link='https://ntfy.sh/'+topic; document.getElementById('monTopicLink').href=link;
+      try{ const qr=qrcode(0,'M'); qr.addData(link); qr.make(); document.getElementById('monBgQr').src=qr.createDataURL(5,4); }catch(e){} }
+  };
   const add=(m,ts)=>{ if(!m||!m.text) return; const key=ts+'|'+m.text; if(seen.has(key))return; seen.add(key);
     const d=document.createElement('div');
     d.style.cssText='display:flex;gap:10px;padding:12px;border-bottom:1px solid var(--line);'+(m.urgent?'background:#3b0d0d;border-radius:10px;':'');
@@ -384,6 +422,30 @@ function fireUrgent(m){
     o.frequency.value=880; const t=monAudioCtx.currentTime; g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.01,t+0.7); o.start(t); o.stop(t+0.7);}catch(e){} }
   if('Notification' in window && Notification.permission==='granted'){ try{ new Notification('🆘 '+(m.name||'Loved one')+' needs help', {body:m.text}); }catch(e){} }
 }
+
+// ---------- accessibility: switch scanning + big mode ----------
+let scanOn=false, scanIdx=0, scanTimer=null, scanSpeed=+(settings.scanSpeed||1500);
+function scannable(){ return [...document.querySelectorAll('.crit button'), document.getElementById('speakBtn'),
+  ...document.querySelectorAll('#tabs .tab'), ...document.querySelectorAll('#grid .pbtn:not(.add)')].filter(Boolean); }
+function clearHl(){ document.querySelectorAll('.scanhl').forEach(e=>e.classList.remove('scanhl')); }
+function scanStep(){ const els=scannable(); if(!els.length) return; if(scanIdx>=els.length) scanIdx=0; clearHl();
+  const el=els[scanIdx]; el.classList.add('scanhl'); el.scrollIntoView({block:'nearest'}); scanIdx++; }
+function startScan(){ scanOn=true; document.body.classList.add('scanning'); document.getElementById('scanBar').style.display='block';
+  scanIdx=0; scanStep(); clearInterval(scanTimer); scanTimer=setInterval(scanStep, scanSpeed); }
+function stopScan(){ scanOn=false; clearInterval(scanTimer); clearHl();
+  document.getElementById('scanBar').style.display='none'; document.body.classList.remove('scanning'); }
+function scanSelect(){ if(!scanOn) return; const els=scannable(); if(!els.length) return;
+  const el=els[(scanIdx-1+els.length)%els.length]; clearInterval(scanTimer); clearHl(); if(el){ el.classList.add('scanhl'); el.click(); }
+  setTimeout(()=>{ if(scanOn){ scanIdx=0; scanStep(); scanTimer=setInterval(scanStep, scanSpeed); } }, 850); }
+document.getElementById('scanBar').addEventListener('click', scanSelect);
+document.addEventListener('keydown',(e)=>{ if(scanOn && (e.code==='Space'||e.code==='Enter')){ e.preventDefault(); scanSelect(); } });
+document.getElementById('scanToggle').onchange=e=>{ e.target.checked?startScan():stopScan(); };
+const _ss=document.getElementById('scanSpeed'); _ss.value=scanSpeed;
+function scanRateLabel(){ document.getElementById('scanRateVal').textContent = scanSpeed<1100?'Fast':scanSpeed>2200?'Slow':'Normal'; }
+scanRateLabel();
+_ss.oninput=e=>{ scanSpeed=+e.target.value; settings.scanSpeed=scanSpeed; saveSettings(); scanRateLabel(); if(scanOn){ clearInterval(scanTimer); scanTimer=setInterval(scanStep, scanSpeed); } };
+const _big=document.getElementById('bigToggle'); _big.checked=!!settings.big; if(settings.big) document.body.classList.add('big');
+_big.onchange=e=>{ document.body.classList.toggle('big', e.target.checked); settings.big=e.target.checked; saveSettings(); };
 
 speechSynthesis.onvoiceschanged = loadVoices;
 loadVoices(); renderTabs(); renderGrid(); refreshCloudUI();
