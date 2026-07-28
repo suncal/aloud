@@ -72,6 +72,11 @@
   body.scanning .grid{ padding-bottom:100px }
   body.big .grid{ grid-template-columns:repeat(auto-fill,minmax(220px,1fr)) }
   body.big .pbtn{ min-height:132px;font-size:22px } body.big .pbtn .emo{ font-size:48px }
+  /* word prediction */
+  .pred{display:flex;gap:8px;overflow-x:auto;padding:10px 0 2px;-webkit-overflow-scrolling:touch}
+  .pred button{white-space:nowrap;background:#273449;border:1px solid #334155;color:#e0f2fe;border-radius:999px;
+    padding:10px 18px;font-size:18px;font-weight:600;cursor:pointer;flex:none}
+  .pred button:active{background:#0c4a6e;border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -90,6 +95,7 @@
 
 <div class="bar">
   <textarea id="say" rows="1" placeholder="Type here, or tap a phrase below…" autocomplete="off"></textarea>
+  <div class="pred" id="predRow"></div>
   <div class="barrow">
     <button class="speak" id="speakBtn">🔊 Speak</button>
     <button class="clear" id="clearBtn">⌫</button>
@@ -131,6 +137,15 @@
       <span>🔠 Big buttons</span>
       <input type="checkbox" id="bigToggle" style="width:auto;transform:scale(1.4)">
     </label>
+  </div>
+  <div style="border-top:1px solid var(--line);margin-top:16px;padding-top:12px">
+    <div style="color:var(--ink);font-size:16px;font-weight:600">💾 Back up your board</div>
+    <div style="color:var(--mut);font-size:13px;margin:4px 0 10px">Save your custom phrases &amp; settings to a file so you never lose them — then restore on any phone.</div>
+    <div class="row2" style="margin-top:0">
+      <button class="prim" id="backupBtn" style="border:none">⬇︎ Back up</button>
+      <button class="sec" id="restoreBtn">⬆︎ Restore</button>
+    </div>
+    <input type="file" id="restoreFile" accept="application/json,.json" style="display:none">
   </div>
   <div class="row2"><button class="sec" id="closeSet">Done</button></div>
   <div class="hint">Private — nothing is uploaded. Alerts &amp; summaries are sent only when you tap, through your own phone's messaging.</div>
@@ -247,7 +262,7 @@ let lastUrgent = '';
 function saveLog(){ log = log.slice(-500); localStorage.setItem('aloud_log', JSON.stringify(log)); }
 function logMsg(text, urgent){ log.push({t:Date.now(), text, urgent:!!urgent}); saveLog(); }
 function timeStr(ts){ return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
-function communicate(text, urgent){ if(!text||!text.trim()) return; speak(text); appendSaid(text); logMsg(text, urgent);
+function communicate(text, urgent){ if(!text||!text.trim()) return; speak(text); appendSaid(text); logMsg(text, urgent); learn(text);
   cloudPush(text.trim(), urgent);
   if(urgent){ lastUrgent=text.trim(); showAlert(text.trim()); } }
 function showAlert(text){ const b=document.getElementById('alertBanner');
@@ -313,7 +328,7 @@ function renderGrid(){
   }
 }
 function appendSaid(text){ /* also drop it into the bar so it can be shown/extended */
-  const s=document.getElementById('say'); s.value = text; autoSize(s);
+  const s=document.getElementById('say'); s.value = text; autoSize(s); renderPred();
 }
 
 // ---------- custom phrases ----------
@@ -422,6 +437,84 @@ function fireUrgent(m){
     o.frequency.value=880; const t=monAudioCtx.currentTime; g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.01,t+0.7); o.start(t); o.stop(t+0.7);}catch(e){} }
   if('Notification' in window && Notification.permission==='granted'){ try{ new Notification('🆘 '+(m.name||'Loved one')+' needs help', {body:m.text}); }catch(e){} }
 }
+
+// ---------- word prediction + sentence bar ----------
+const BASE_WORDS = "I you a the to it is my me we they and or but not no yes please thank help need want have go come stop more done now here there this that what where when who how can will do are am with for on in at of out up down back some all can't don't feel like get put give take see look hear say tell ask call open close turn light water food eat drink bathroom toilet sleep rest sit stand walk pain hurt sick tired hungry thirsty hot cold happy sad okay good bad better home room bed chair door window phone family mom dad wife husband son daughter friend nurse doctor caregiver medicine time today tomorrow morning night love".split(' ');
+const BIGRAMS = { i:["need","want","am","feel","would","can","don't","like","have","love"],
+  need:["help","to","a","more","my","some"], want:["to","a","some","my","water","food"],
+  am:["hungry","thirsty","tired","cold","hot","okay","in","not"], feel:["sick","tired","okay","better","cold","hot","sad"],
+  would:["like"], like:["to","some","a","water","food"], can:["you","i","we","help"],
+  please:["help","call","open","close","get","give","stop","wait"], the:["bathroom","door","window","light","phone","nurse","doctor","water"],
+  my:["medicine","family","phone","wife","husband","son","daughter","head","back"], a:["doctor","nurse","drink","little","break","hug"],
+  to:["go","the","eat","drink","sleep","sit","rest"], go:["home","to","now","back"], in:["pain","bed","the"],
+  help:["me","please"], thank:["you"], call:["someone","my","the"], get:["me","up","some"], open:["the"], close:["the"],
+  turn:["on","off","the"], more:["water","food","time","please"], some:["water","food","help","medicine"], it:["hurts","is"], that:["hurts","is","one"] };
+const STARTERS = ["I","Can","Please","Thank you","Yes","No","I need","I want","I am","I feel"];
+let freq = (()=>{ try{ return JSON.parse(localStorage.getItem('aloud_freq'))||{w:{},bg:{}} }catch(e){ return {w:{},bg:{}} } })();
+function saveFreq(){ try{ localStorage.setItem('aloud_freq', JSON.stringify(freq)); }catch(e){} }
+function learn(text){ const ws=(text||'').toLowerCase().replace(/[^a-z' ]/g,' ').split(/\s+/).filter(Boolean);
+  for(let i=0;i<ws.length;i++){ freq.w[ws[i]]=(freq.w[ws[i]]||0)+1;
+    if(i>0){ const p=ws[i-1]; (freq.bg[p]=freq.bg[p]||{}); freq.bg[p][ws[i]]=(freq.bg[p][ws[i]]||0)+1; } } saveFreq(); }
+function fmt(w,cap){ if(w==='i') return 'I'; return cap ? w.charAt(0).toUpperCase()+w.slice(1) : w; }
+function predict(text){
+  if(!text || !text.trim()) return STARTERS.slice(0,7);
+  const endsSpace = /\s$/.test(text);
+  const toks = text.trim().split(/\s+/);
+  const capNext = endsSpace ? false : toks.length<=1;   // capitalize only when starting the sentence
+  let out=[];
+  if(endsSpace){
+    const prev=(toks[toks.length-1]||'').toLowerCase().replace(/[^a-z']/g,'');
+    const ub = freq.bg[prev] ? Object.keys(freq.bg[prev]).sort((a,b)=>freq.bg[prev][b]-freq.bg[prev][a]) : [];
+    const top = Object.keys(freq.w).sort((a,b)=>freq.w[b]-freq.w[a]).slice(0,6);
+    out=[...ub, ...(BIGRAMS[prev]||[]), ...top];
+  } else {
+    const cur=(toks[toks.length-1]||'').toLowerCase().replace(/[^a-z']/g,'');
+    const uw = Object.keys(freq.w).filter(w=>w.startsWith(cur)&&w!==cur).sort((a,b)=>freq.w[b]-freq.w[a]);
+    const bw = BASE_WORDS.filter(w=>w.toLowerCase().startsWith(cur)&&w.toLowerCase()!==cur);
+    out=[...uw, ...bw];
+  }
+  const seen=new Set(), res=[];
+  for(const w of out){ const lw=(w||'').toLowerCase(); if(!lw||seen.has(lw))continue; seen.add(lw); res.push(fmt(lw,capNext)); if(res.length>=7)break; }
+  return res;
+}
+function renderPred(){
+  const row=document.getElementById('predRow'), say=document.getElementById('say'); if(!row||!say) return;
+  row.innerHTML='';
+  predict(say.value).forEach(w=>{ const b=document.createElement('button'); b.type='button'; b.textContent=w;
+    b.addEventListener('click',()=>insertPred(w)); row.appendChild(b); });
+}
+function insertPred(word){
+  const say=document.getElementById('say'); let t=say.value;
+  if(t==='' || /\s$/.test(t)) t = t + word + ' ';
+  else t = t.replace(/(\S+)$/, word) + ' ';
+  say.value=t; autoSize(say); renderPred(); say.focus();
+}
+function backupBoard(){
+  const data={ app:'aloud', v:1, exported:new Date().toISOString(),
+    custom, settings, circle: localStorage.getItem('aloud_circle')||'' };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='aloud-backup.json';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function restoreBoard(file){ const r=new FileReader();
+  r.onload=()=>{ try{ const d=JSON.parse(r.result); if(!d||d.app!=='aloud') throw 0;
+    if(Array.isArray(d.custom)){ custom=d.custom; saveCustom(); }
+    if(d.settings && typeof d.settings==='object'){ settings=Object.assign(settings,d.settings); saveSettings(); }
+    if(typeof d.circle==='string' && d.circle) localStorage.setItem('aloud_circle', d.circle);
+    ['pname','fname','fphone'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=settings[id]||''; });
+    const rt=document.getElementById('rate'); if(rt) rt.value=settings.rate||1;
+    const ts=document.getElementById('tsize'); if(ts) ts.value=settings.tsize||17;
+    const bt=document.getElementById('bigToggle'); if(bt){ bt.checked=!!settings.big; document.body.classList.toggle('big',!!settings.big); }
+    populateVoices(); applyTextSize(); renderTabs(); renderGrid();
+    alert('Your board was restored ✓');
+  }catch(e){ alert('Sorry — that file could not be read as an Aloud backup.'); } };
+  r.readAsText(file);
+}
+document.getElementById('say').addEventListener('input', renderPred);
+document.getElementById('backupBtn').addEventListener('click', backupBoard);
+document.getElementById('restoreBtn').addEventListener('click', ()=>document.getElementById('restoreFile').click());
+document.getElementById('restoreFile').addEventListener('change', e=>{ if(e.target.files&&e.target.files[0]) restoreBoard(e.target.files[0]); e.target.value=''; });
+renderPred();
 
 // ---------- accessibility: switch scanning + big mode ----------
 let scanOn=false, scanIdx=0, scanTimer=null, scanSpeed=+(settings.scanSpeed||1500);
